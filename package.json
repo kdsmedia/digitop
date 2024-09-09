@@ -1,0 +1,21 @@
+{
+  "name": "digitop",
+  "version": "1.0.0",
+  "description": "Toko Online WhatsApp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Sidhanie",
+  "license": "ISC",
+  "dependencies": {
+    "@adiwajshing/baileys": "^6.0.0", // Versi terbaru dari Baileys
+    "axios": "^1.3.0", // Versi terbaru dari Axios
+    "ws": "^8.7.0" // Versi terbaru dari ws
+  },
+  "engines": {
+    "node": ">=16.x" // Versi Node.js yang kompatibel dengan Heroku
+  }
+}
