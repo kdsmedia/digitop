@@ -1,25 +1,8 @@
-const { default: makeWASocket, DisconnectReason } = require('@adiwajshing/baileys');
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
 const fs = require('fs');
-const path = require('path');
 const { Boom } = require('@hapi/boom');
 const axios = require('axios'); // Mengimpor axios
 const WebSocket = require('ws'); // Mengimpor ws
-
-// Path ke file autentikasi
-const AUTH_FILE_PATH = path.join(__dirname, 'auth_info.json');
-
-// Membaca status autentikasi dari file
-let authState = {};
-try {
-    authState = JSON.parse(fs.readFileSync(AUTH_FILE_PATH, 'utf-8'));
-} catch (e) {
-    console.log('No previous auth state found, starting fresh');
-}
-
-// Menyimpan status autentikasi ke file
-const saveAuthState = (state) => {
-    fs.writeFileSync(AUTH_FILE_PATH, JSON.stringify(state, null, 2));
-};
 
 // Data produk dengan 5 sub-produk
 const products = [
@@ -36,6 +19,9 @@ const products = [
     // Tambahkan produk lainnya sesuai kebutuhan
 ];
 
+// Untuk menyimpan sesi autentikasi
+const { state, saveState } = useSingleFileAuthState('./auth_info.json');
+
 let userOrder = {};
 let userStatus = {};
 
@@ -44,10 +30,10 @@ const startBot = async () => {
     const sock = makeWASocket({
         logger: console,
         printQRInTerminal: true,
-        auth: authState
+        auth: state
     });
 
-    sock.ev.on('creds.update', saveAuthState);
+    sock.ev.on('creds.update', saveState);
 
     // Fungsi untuk mengirim ucapan selamat datang
     const sendWelcomeMessage = async (jid) => {
@@ -224,34 +210,53 @@ const startBot = async () => {
 
         if (!message.key.fromMe && message.message) {
             try {
-                // Menangani pesan pertama kali
-                if (message.message?.conversation?.toLowerCase() === 'hi' || message.message?.conversation?.toLowerCase() === 'halo') {
+                // Periksa apakah pengguna sudah pernah berinteraksi sebelumnya
+                if (!userStatus[jid]) {
+                    // Jika pengguna baru, kirim ucapan selamat datang dan tandai mereka
                     await sendWelcomeMessage(jid);
-                    await showProducts(jid);
-                } 
-                // Menangani pilihan produk
-                else if (!isNaN(parseInt(text)) && parseInt(text) >= 1 && parseInt(text) <= products.length) {
-                    await showSubProducts(jid, parseInt(text) - 1);
-                    userStatus[jid] = { productIndex: parseInt(text) - 1 };
-                } 
-                // Menangani pilihan sub-produk
-                else if (!isNaN(parseInt(text)) && parseInt(text) >= 1 && userStatus[jid]) {
-                    await showProductDetails(jid, userStatus[jid].productIndex, parseInt(text) - 1);
-                    await askProductType(jid);
-                } 
-                // Menangani metode pembayaran
-                else if (['bank', 'ewallet'].includes(buttonResponse)) {
-                    await sendPaymentImage(jid, buttonResponse);
-                    await askPaymentConfirmation(jid);
-                } 
-                // Menangani konfirmasi pembayaran
-                else if (buttonResponse === 'paid') {
-                    if (userOrder[jid].awaitingAddress === 'physical') {
+                    userStatus[jid] = { hasInteracted: true };
+                }
+
+                if (buttonResponse) {
+                    if (buttonResponse === 'buy') {
+                        await showPaymentMethods(jid);
+                    } else if (buttonResponse === 'bank' || buttonResponse === 'ewallet') {
+                        await sendPaymentImage(jid, buttonResponse);
+                        await askProductType(jid);
+                    } else if (buttonResponse === 'physical') {
                         await askPhysicalAddress(jid);
-                    } else if (userOrder[jid].awaitingAddress === 'digital') {
+                    } else if (buttonResponse === 'digital') {
                         await askDigitalContact(jid);
+                    } else if (buttonResponse === 'paid') {
+                        await askForTransferProof(jid);
+                    } else if (buttonResponse === 'not_paid') {
+                        await askPaymentConfirmation(jid);
                     }
-                    await askForTransferProof(jid);
+                } else if (text) {
+                    if (text === 'menu') {
+                        await showProducts(jid);
+                    } else if (text.match(/^\d+$/)) {
+                        const productIndex = parseInt(text) - 1;
+                        if (productIndex >= 0 && productIndex < products.length) {
+                            await showSubProducts(jid, productIndex);
+                        } else {
+                            await sock.sendMessage(jid, { text: 'Pilihan produk tidak valid.' });
+                        }
+                    } else if (text.match(/^\d+\.\d+$/)) {
+                        const [productIndex, subProductIndex] = text.split('.').map(Number);
+                        if (productIndex >= 1 && productIndex <= products.length) {
+                            const product = products[productIndex - 1];
+                            if (subProductIndex >= 1 && subProductIndex <= product.subProducts.length) {
+                                await showProductDetails(jid, productIndex - 1, subProductIndex - 1);
+                            } else {
+                                await sock.sendMessage(jid, { text: 'Pilihan sub-produk tidak valid.' });
+                            }
+                        } else {
+                            await sock.sendMessage(jid, { text: 'Pilihan produk tidak valid.' });
+                        }
+                    } else {
+                        await sock.sendMessage(jid, { text: 'Perintah tidak dikenali. Ketik "menu" untuk melihat pilihan produk.' });
+                    }
                 }
             } catch (error) {
                 console.error('Error handling message:', error);
@@ -259,22 +264,17 @@ const startBot = async () => {
         }
     });
 
-    // Menangani pembaruan koneksi
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+    // Menangani disconnect
+    sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('connection closed due to', lastDisconnect.error, ', reconnecting', shouldReconnect);
+            const shouldReconnect = (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
+            console.log('Disconnected due to', lastDisconnect.error, 'Reconnecting:', shouldReconnect);
             if (shouldReconnect) {
                 startBot();
             }
-        } else if (connection === 'open') {
-            console.log('opened connection');
         }
     });
-
-    sock.ev.on('messages.update', (m) => console.log(m));
 };
 
-// Memulai bot
+// Mulai bot
 startBot();
