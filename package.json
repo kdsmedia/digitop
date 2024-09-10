@@ -1,18 +1,29 @@
 {
   "name": "digitop",
   "version": "1.0.0",
+  "description": "Toko Online WhatsApp",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "Sidhanie",
   "license": "ISC",
-  "description": "Toko Online WhatsApp",
   "dependencies": {
-    "@adiwajshing/baileys": "^5.0.0",
-    "axios": "^1.0.0",
-    "request": "^2.88.2",
-    "ws": "^8.8.0"
-  }
+    "@adiwajshing/baileys": "^4.0.0",
+    "axios": "^1.3.0",
+    "ws": "^8.7.0"
+  },
+  "engines": {
+    "node": ">=16.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdsmedia/digitop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kdsmedia/digitop/issues"
+  },
+  "homepage": "https://github.com/kdsmedia/digitop#readme"
 }
