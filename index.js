@@ -1,39 +1,31 @@
-const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
+const makeWASocket = require('@adiwajshing/baileys').default;
 const fs = require('fs');
 const { Boom } = require('@hapi/boom');
-const axios = require('axios');
-const WebSocket = require('ws');
+const axios = require('axios'); // Mengimpor axios
+const WebSocket = require('ws'); // Mengimpor ws
 
-// Data produk dengan 5 sub-produk
-const products = [
-    {
-        name: 'Produk 1',
-        subProducts: [
-            { name: 'Sub-Produk 1A', price: 10000, description: 'Deskripsi Sub-Produk 1A', image: './images/product1A.jpg' },
-            { name: 'Sub-Produk 1B', price: 15000, description: 'Deskripsi Sub-Produk 1B', image: './images/product1B.jpg' },
-            { name: 'Sub-Produk 1C', price: 20000, description: 'Deskripsi Sub-Produk 1C', image: './images/product1C.jpg' },
-            { name: 'Sub-Produk 1D', price: 25000, description: 'Deskripsi Sub-Produk 1D', image: './images/product1D.jpg' },
-            { name: 'Sub-Produk 1E', price: 30000, description: 'Deskripsi Sub-Produk 1E', image: './images/product1E.jpg' }
-        ]
-    },
-    // Tambahkan produk lainnya sesuai kebutuhan
-];
+// Membaca status autentikasi dari file jika ada
+let authState = {};
+try {
+    authState = JSON.parse(fs.readFileSync('./auth_info.json', 'utf-8'));
+} catch (e) {
+    console.log('No previous auth state found, starting fresh');
+}
 
-// Untuk menyimpan sesi autentikasi
-const { state, saveState } = useSingleFileAuthState('./auth_info.json');
-
-let userOrder = {};
-let userStatus = {};
+// Fungsi untuk menyimpan status autentikasi ke file
+const saveAuthState = (state) => {
+    fs.writeFileSync('./auth_info.json', JSON.stringify(state, null, 2));
+};
 
 // Fungsi untuk memulai bot
 const startBot = async () => {
     const sock = makeWASocket({
         logger: console,
         printQRInTerminal: true,
-        auth: state
+        auth: authState
     });
 
-    sock.ev.on('creds.update', saveState);
+    sock.ev.on('creds.update', saveAuthState);
 
     // Fungsi untuk mengirim ucapan selamat datang
     const sendWelcomeMessage = async (jid) => {
@@ -264,12 +256,12 @@ const startBot = async () => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed due to', lastDisconnect.error, ', reconnecting:', shouldReconnect);
+            console.log('connection closed due to', lastDisconnect.error, ', reconnecting', shouldReconnect);
             if (shouldReconnect) {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('Opened connection');
+            console.log('opened connection');
         }
     });
 
