@@ -1,21 +1,43 @@
-const makeWASocket = require('@adiwajshing/baileys').default;
+const { default: makeWASocket, DisconnectReason } = require('@adiwajshing/baileys');
 const fs = require('fs');
+const path = require('path');
 const { Boom } = require('@hapi/boom');
 const axios = require('axios'); // Mengimpor axios
 const WebSocket = require('ws'); // Mengimpor ws
 
-// Membaca status autentikasi dari file jika ada
+// Path ke file autentikasi
+const AUTH_FILE_PATH = path.join(__dirname, 'auth_info.json');
+
+// Membaca status autentikasi dari file
 let authState = {};
 try {
-    authState = JSON.parse(fs.readFileSync('./auth_info.json', 'utf-8'));
+    authState = JSON.parse(fs.readFileSync(AUTH_FILE_PATH, 'utf-8'));
 } catch (e) {
     console.log('No previous auth state found, starting fresh');
 }
 
-// Fungsi untuk menyimpan status autentikasi ke file
+// Menyimpan status autentikasi ke file
 const saveAuthState = (state) => {
-    fs.writeFileSync('./auth_info.json', JSON.stringify(state, null, 2));
+    fs.writeFileSync(AUTH_FILE_PATH, JSON.stringify(state, null, 2));
 };
+
+// Data produk dengan 5 sub-produk
+const products = [
+    {
+        name: 'Produk 1',
+        subProducts: [
+            { name: 'Sub-Produk 1A', price: 10000, description: 'Deskripsi Sub-Produk 1A', image: './images/product1A.jpg' },
+            { name: 'Sub-Produk 1B', price: 15000, description: 'Deskripsi Sub-Produk 1B', image: './images/product1B.jpg' },
+            { name: 'Sub-Produk 1C', price: 20000, description: 'Deskripsi Sub-Produk 1C', image: './images/product1C.jpg' },
+            { name: 'Sub-Produk 1D', price: 25000, description: 'Deskripsi Sub-Produk 1D', image: './images/product1D.jpg' },
+            { name: 'Sub-Produk 1E', price: 30000, description: 'Deskripsi Sub-Produk 1E', image: './images/product1E.jpg' }
+        ]
+    },
+    // Tambahkan produk lainnya sesuai kebutuhan
+];
+
+let userOrder = {};
+let userStatus = {};
 
 // Fungsi untuk memulai bot
 const startBot = async () => {
@@ -202,51 +224,37 @@ const startBot = async () => {
 
         if (!message.key.fromMe && message.message) {
             try {
-                // Periksa apakah pengguna sudah pernah berinteraksi sebelumnya
-                if (!userStatus[jid]) {
-                    // Jika pengguna baru, kirim ucapan selamat datang dan tandai mereka
+                // Menangani pesan pertama kali
+                if (message.message?.conversation?.toLowerCase() === 'hi' || message.message?.conversation?.toLowerCase() === 'halo') {
                     await sendWelcomeMessage(jid);
-                    userStatus[jid] = { hasInteracted: true };
-                }
-
-                if (buttonResponse) {
-                    if (buttonResponse === 'buy') {
-                        await showPaymentMethods(jid);
-                    } else if (buttonResponse === 'bank' || buttonResponse === 'ewallet') {
-                        userOrder[jid].paymentMethod = buttonResponse.toUpperCase();
-                        await sendPaymentImage(jid, buttonResponse);
-                        await askProductType(jid);
-                    } else if (buttonResponse === 'physical') {
+                    await showProducts(jid);
+                } 
+                // Menangani pilihan produk
+                else if (!isNaN(parseInt(text)) && parseInt(text) >= 1 && parseInt(text) <= products.length) {
+                    await showSubProducts(jid, parseInt(text) - 1);
+                    userStatus[jid] = { productIndex: parseInt(text) - 1 };
+                } 
+                // Menangani pilihan sub-produk
+                else if (!isNaN(parseInt(text)) && parseInt(text) >= 1 && userStatus[jid]) {
+                    await showProductDetails(jid, userStatus[jid].productIndex, parseInt(text) - 1);
+                    await askProductType(jid);
+                } 
+                // Menangani metode pembayaran
+                else if (['bank', 'ewallet'].includes(buttonResponse)) {
+                    await sendPaymentImage(jid, buttonResponse);
+                    await askPaymentConfirmation(jid);
+                } 
+                // Menangani konfirmasi pembayaran
+                else if (buttonResponse === 'paid') {
+                    if (userOrder[jid].awaitingAddress === 'physical') {
                         await askPhysicalAddress(jid);
-                    } else if (buttonResponse === 'digital') {
+                    } else if (userOrder[jid].awaitingAddress === 'digital') {
                         await askDigitalContact(jid);
-                    } else if (buttonResponse === 'paid') {
-                        await askForTransferProof(jid);
                     }
-                } else if (text) {
-                    if (text === 'produk') {
-                        await showProducts(jid);
-                    } else if (userOrder[jid]?.awaitingAddress) {
-                        if (userOrder[jid].awaitingAddress === 'physical') {
-                            userOrder[jid].address = text; // Simpan alamat fisik
-                            await askPaymentConfirmation(jid);
-                        } else if (userOrder[jid].awaitingAddress === 'digital') {
-                            userOrder[jid].contact = text; // Simpan kontak digital
-                            await askPaymentConfirmation(jid);
-                        }
-                    } else if (text.match(/^\d+$/)) {
-                        const index = parseInt(text) - 1;
-                        if (index >= 0 && index < products.length) {
-                            await showSubProducts(jid, index);
-                        } else if (userOrder[jid]?.product) {
-                            const subProductIndex = index;
-                            await showProductDetails(jid, 0, subProductIndex); // Periksa produk pertama untuk contoh
-                        }
-                    }
+                    await askForTransferProof(jid);
                 }
             } catch (error) {
                 console.error('Error handling message:', error);
-                await sock.sendMessage(jid, { text: 'Terjadi kesalahan, coba lagi nanti.' });
             }
         }
     });
@@ -266,35 +274,7 @@ const startBot = async () => {
     });
 
     sock.ev.on('messages.update', (m) => console.log(m));
-
-    // Contoh penggunaan axios: ambil data dari API eksternal
-    const fetchDataFromAPI = async () => {
-        try {
-            const response = await axios.get('https://api.example.com/data');
-            console.log('Data dari API:', response.data);
-        } catch (error) {
-            console.error('Error fetching data:', error);
-        }
-    };
-
-    // Contoh penggunaan ws: membuat koneksi WebSocket
-    const ws = new WebSocket('wss://example.com/socket');
-
-    ws.on('open', () => {
-        console.log('WebSocket connection opened');
-        ws.send('Hello, WebSocket server!');
-    });
-
-    ws.on('message', (data) => {
-        console.log('Received via WebSocket:', data);
-    });
-
-    ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-    });
-
-    // Panggil fungsi fetchDataFromAPI jika diperlukan
-    fetchDataFromAPI();
 };
 
+// Memulai bot
 startBot();
