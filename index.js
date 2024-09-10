@@ -1,6 +1,8 @@
-const { default: makeWASocket, useSingleFileAuthState } = require('@adiwajshing/baileys');
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
 const fs = require('fs');
 const { Boom } = require('@hapi/boom');
+const axios = require('axios'); // Mengimpor axios
+const WebSocket = require('ws'); // Mengimpor ws
 
 // Data produk dengan 5 sub-produk
 const products = [
@@ -257,6 +259,7 @@ const startBot = async () => {
         }
     });
 
+    // Menangani pembaruan koneksi
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
@@ -271,6 +274,35 @@ const startBot = async () => {
     });
 
     sock.ev.on('messages.update', (m) => console.log(m));
+
+    // Contoh penggunaan axios: ambil data dari API eksternal
+    const fetchDataFromAPI = async () => {
+        try {
+            const response = await axios.get('https://api.example.com/data');
+            console.log('Data dari API:', response.data);
+        } catch (error) {
+            console.error('Error fetching data:', error);
+        }
+    };
+
+    // Contoh penggunaan ws: membuat koneksi WebSocket
+    const ws = new WebSocket('wss://example.com/socket');
+
+    ws.on('open', () => {
+        console.log('WebSocket connection opened');
+        ws.send('Hello, WebSocket server!');
+    });
+
+    ws.on('message', (data) => {
+        console.log('Received via WebSocket:', data);
+    });
+
+    ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+    });
+
+    // Panggil fungsi fetchDataFromAPI jika diperlukan
+    fetchDataFromAPI();
 };
 
 startBot();
