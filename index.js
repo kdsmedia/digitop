@@ -1,8 +1,8 @@
 const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
 const fs = require('fs');
 const { Boom } = require('@hapi/boom');
-const axios = require('axios'); // Mengimpor axios
-const WebSocket = require('ws'); // Mengimpor ws
+const axios = require('axios');
+const WebSocket = require('ws');
 
 // Data produk dengan 5 sub-produk
 const products = [
@@ -264,12 +264,12 @@ const startBot = async () => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('connection closed due to', lastDisconnect.error, ', reconnecting', shouldReconnect);
+            console.log('Connection closed due to', lastDisconnect.error, ', reconnecting:', shouldReconnect);
             if (shouldReconnect) {
                 startBot();
             }
         } else if (connection === 'open') {
-            console.log('opened connection');
+            console.log('Opened connection');
         }
     });
 
