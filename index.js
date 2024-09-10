@@ -1,4 +1,4 @@
-const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@adiwajshing/baileys');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@adiwajshing/baileys');
 const fs = require('fs');
 const { Boom } = require('@hapi/boom');
 const axios = require('axios'); // Mengimpor axios
@@ -20,7 +20,7 @@ const products = [
 ];
 
 // Untuk menyimpan sesi autentikasi
-const { state, saveState } = useSingleFileAuthState('./auth_info.json');
+const { state, saveState } = useMultiFileAuthState('./auth_info'); // Menggunakan useMultiFileAuthState untuk versi terbaru
 
 let userOrder = {};
 let userStatus = {};
@@ -190,90 +190,78 @@ const startBot = async () => {
         }
     };
 
-    // Fungsi untuk meminta bukti transfer
-    const askForTransferProof = async (jid) => {
+    // Fungsi untuk menangani pesan masuk
+    sock.ev.on('messages.upsert', async (m) => {
         try {
-            await sock.sendMessage(jid, { text: 'Jika sudah, silakan kirim bukti transfer.' });
-            userOrder[jid].awaitingTransferProof = true;
-        } catch (error) {
-            console.error('Error asking for transfer proof:', error);
-        }
-    };
+            const message = m.messages[0];
+            if (!message.message) return;
 
-    // Menangani pesan masuk
-    sock.ev.on('messages.upsert', async (msg) => {
-        const message = msg.messages[0];
-        const jid = message.key.remoteJid;
-        const text = message.message?.conversation?.toLowerCase() ||
-            message.message?.extendedTextMessage?.text?.toLowerCase();
-        const buttonResponse = message.message?.buttonsResponseMessage?.selectedButtonId;
+            const jid = message.key.remoteJid;
+            const messageType = Object.keys(message.message)[0];
+            const messageContent = message.message[messageType];
 
-        if (!message.key.fromMe && message.message) {
-            try {
-                // Periksa apakah pengguna sudah pernah berinteraksi sebelumnya
-                if (!userStatus[jid]) {
-                    // Jika pengguna baru, kirim ucapan selamat datang dan tandai mereka
+            if (message.key.fromMe) return; // Mengabaikan pesan dari bot sendiri
+
+            if (messageContent.text) {
+                const text = messageContent.text.toLowerCase();
+
+                if (text === 'hi' || text === 'hello') {
                     await sendWelcomeMessage(jid);
-                    userStatus[jid] = { hasInteracted: true };
-                }
-
-                if (buttonResponse) {
-                    if (buttonResponse === 'buy') {
-                        await showPaymentMethods(jid);
-                    } else if (buttonResponse === 'bank' || buttonResponse === 'ewallet') {
-                        await sendPaymentImage(jid, buttonResponse);
-                        await askProductType(jid);
-                    } else if (buttonResponse === 'physical') {
-                        await askPhysicalAddress(jid);
-                    } else if (buttonResponse === 'digital') {
-                        await askDigitalContact(jid);
-                    } else if (buttonResponse === 'paid') {
-                        await askForTransferProof(jid);
-                    } else if (buttonResponse === 'not_paid') {
-                        await askPaymentConfirmation(jid);
-                    }
-                } else if (text) {
-                    if (text === 'menu') {
-                        await showProducts(jid);
-                    } else if (text.match(/^\d+$/)) {
-                        const productIndex = parseInt(text) - 1;
-                        if (productIndex >= 0 && productIndex < products.length) {
-                            await showSubProducts(jid, productIndex);
-                        } else {
-                            await sock.sendMessage(jid, { text: 'Pilihan produk tidak valid.' });
-                        }
-                    } else if (text.match(/^\d+\.\d+$/)) {
-                        const [productIndex, subProductIndex] = text.split('.').map(Number);
-                        if (productIndex >= 1 && productIndex <= products.length) {
-                            const product = products[productIndex - 1];
-                            if (subProductIndex >= 1 && subProductIndex <= product.subProducts.length) {
-                                await showProductDetails(jid, productIndex - 1, subProductIndex - 1);
-                            } else {
-                                await sock.sendMessage(jid, { text: 'Pilihan sub-produk tidak valid.' });
-                            }
-                        } else {
-                            await sock.sendMessage(jid, { text: 'Pilihan produk tidak valid.' });
-                        }
+                } else if (text === 'menu') {
+                    await showProducts(jid);
+                } else if (text.startsWith('pilih produk')) {
+                    const productIndex = parseInt(text.split(' ')[2]) - 1;
+                    if (productIndex >= 0 && productIndex < products.length) {
+                        await showSubProducts(jid, productIndex);
                     } else {
-                        await sock.sendMessage(jid, { text: 'Perintah tidak dikenali. Ketik "menu" untuk melihat pilihan produk.' });
+                        await sock.sendMessage(jid, { text: 'Produk tidak ditemukan.' });
                     }
+                } else if (text.startsWith('sub produk')) {
+                    const [_, productIndex, subProductIndex] = text.split(' ').map(Number);
+                    if (products[productIndex] && products[productIndex].subProducts[subProductIndex]) {
+                        await showProductDetails(jid, productIndex, subProductIndex);
+                    } else {
+                        await sock.sendMessage(jid, { text: 'Sub-produk tidak ditemukan.' });
+                    }
+                } else if (text === 'payment') {
+                    await showPaymentMethods(jid);
+                } else if (text.startsWith('bank') || text.startsWith('ewallet')) {
+                    const method = text.split(' ')[0];
+                    await sendPaymentImage(jid, method);
+                } else if (text === 'fisik' || text === 'digital') {
+                    await askProductType(jid);
+                } else if (text === 'fisik') {
+                    await askPhysicalAddress(jid);
+                } else if (text === 'digital') {
+                    await askDigitalContact(jid);
+                } else if (text === 'bayar') {
+                    await askPaymentConfirmation(jid);
+                } else {
+                    await sock.sendMessage(jid, { text: 'Perintah tidak dikenali. Ketik "menu" untuk melihat opsi.' });
                 }
-            } catch (error) {
-                console.error('Error handling message:', error);
             }
+        } catch (error) {
+            console.error('Error handling incoming messages:', error);
         }
     });
 
-    // Menangani disconnect
-    sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+    // Event handler untuk disconnect
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
-            console.log('Disconnected due to', lastDisconnect.error, 'Reconnecting:', shouldReconnect);
             if (shouldReconnect) {
-                startBot();
+                startBot(); // Rekoneksikan jika perlu
             }
         }
     });
+
+    // Event handler untuk QR code
+    sock.ev.on('qr', (qr) => {
+        console.log('QR Code received:', qr);
+    });
+
+    console.log('Bot is running...');
 };
 
 // Mulai bot
