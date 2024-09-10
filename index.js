@@ -1,5 +1,6 @@
-const { default: makeWASocket } = require('@adiwajshing/baileys');
+const { default: makeWASocket, useSingleFileAuthState } = require('@adiwajshing/baileys');
 const fs = require('fs');
+const { Boom } = require('@hapi/boom');
 
 // Data produk dengan 5 sub-produk
 const products = [
@@ -16,196 +17,260 @@ const products = [
     // Tambahkan produk lainnya sesuai kebutuhan
 ];
 
+// Untuk menyimpan sesi autentikasi
+const { state, saveState } = useSingleFileAuthState('./auth_info.json');
+
 let userOrder = {};
 let userStatus = {};
 
-const startBot = () => {
+// Fungsi untuk memulai bot
+const startBot = async () => {
     const sock = makeWASocket({
         logger: console,
         printQRInTerminal: true,
+        auth: state
     });
+
+    sock.ev.on('creds.update', saveState);
 
     // Fungsi untuk mengirim ucapan selamat datang
     const sendWelcomeMessage = async (jid) => {
-        await sock.sendMessage(jid, {
-            text: 'Selamat datang di layanan kami! Bagaimana kami dapat membantu Anda hari ini?',
-        });
+        try {
+            await sock.sendMessage(jid, {
+                text: 'Selamat datang di layanan kami! Bagaimana kami dapat membantu Anda hari ini?',
+            });
+        } catch (error) {
+            console.error('Error sending welcome message:', error);
+        }
     };
 
     // Fungsi untuk menampilkan menu produk
     const showProducts = async (jid) => {
-        let message = 'Pilih produk:\n';
-        products.forEach((product, index) => {
-            message += `${index + 1}. ${product.name}\n`;
-        });
-        await sock.sendMessage(jid, { text: message });
+        try {
+            let message = 'Pilih produk:\n';
+            products.forEach((product, index) => {
+                message += `${index + 1}. ${product.name}\n`;
+            });
+            await sock.sendMessage(jid, { text: message });
+        } catch (error) {
+            console.error('Error showing products:', error);
+        }
     };
 
     // Fungsi untuk menampilkan sub-produk
     const showSubProducts = async (jid, productIndex) => {
-        const selectedProduct = products[productIndex];
-        let message = `Pilih sub-produk dari ${selectedProduct.name}:\n`;
-        selectedProduct.subProducts.forEach((subProduct, index) => {
-            message += `${index + 1}. ${subProduct.name} - Rp${subProduct.price}\n`;
-        });
-        await sock.sendMessage(jid, { text: message });
+        try {
+            const selectedProduct = products[productIndex];
+            let message = `Pilih sub-produk dari ${selectedProduct.name}:\n`;
+            selectedProduct.subProducts.forEach((subProduct, index) => {
+                message += `${index + 1}. ${subProduct.name} - Rp${subProduct.price}\n`;
+            });
+            await sock.sendMessage(jid, { text: message });
+        } catch (error) {
+            console.error('Error showing sub-products:', error);
+        }
     };
 
     // Fungsi untuk menampilkan detail sub-produk
     const showProductDetails = async (jid, productIndex, subProductIndex) => {
-        const subProduct = products[productIndex].subProducts[subProductIndex];
-        userOrder[jid] = { product: subProduct }; // Menyimpan pilihan produk
-        await sock.sendMessage(jid, {
-            image: { url: subProduct.image },
-            caption: `Nama: ${subProduct.name}\nHarga: Rp${subProduct.price}\nDeskripsi: ${subProduct.description}`,
-            buttons: [
-                { buttonId: 'buy', buttonText: { displayText: 'Beli' }, type: 1 }
-            ],
-            headerType: 4
-        });
+        try {
+            const subProduct = products[productIndex].subProducts[subProductIndex];
+            userOrder[jid] = { product: subProduct }; // Menyimpan pilihan produk
+            if (fs.existsSync(subProduct.image)) {
+                await sock.sendMessage(jid, {
+                    image: { url: subProduct.image },
+                    caption: `Nama: ${subProduct.name}\nHarga: Rp${subProduct.price}\nDeskripsi: ${subProduct.description}`,
+                    buttons: [
+                        { buttonId: 'buy', buttonText: { displayText: 'Beli' }, type: 1 }
+                    ],
+                    headerType: 4
+                });
+            } else {
+                await sock.sendMessage(jid, { text: 'Gambar produk tidak ditemukan.' });
+            }
+        } catch (error) {
+            console.error('Error showing product details:', error);
+        }
     };
 
     // Fungsi untuk menampilkan metode pembayaran dengan gambar
     const showPaymentMethods = async (jid) => {
-        await sock.sendMessage(jid, {
-            text: 'Pilih metode pembayaran:',
-            buttons: [
-                { buttonId: 'bank', buttonText: { displayText: 'BANK' }, type: 1 },
-                { buttonId: 'ewallet', buttonText: { displayText: 'E-Wallet' }, type: 1 }
-            ],
-            headerType: 1
-        });
+        try {
+            await sock.sendMessage(jid, {
+                text: 'Pilih metode pembayaran:',
+                buttons: [
+                    { buttonId: 'bank', buttonText: { displayText: 'BANK' }, type: 1 },
+                    { buttonId: 'ewallet', buttonText: { displayText: 'E-Wallet' }, type: 1 }
+                ],
+                headerType: 1
+            });
+        } catch (error) {
+            console.error('Error showing payment methods:', error);
+        }
     };
 
     // Fungsi untuk mengirim gambar sesuai metode pembayaran
     const sendPaymentImage = async (jid, method) => {
-        let imagePath;
-        let caption;
+        try {
+            let imagePath;
+            let caption;
 
-        if (method === 'bank') {
-            imagePath = './images/bank.jpg';
-            caption = 'Anda memilih metode pembayaran: BANK';
-        } else if (method === 'ewallet') {
-            imagePath = './images/ewallet.jpg';
-            caption = 'Anda memilih metode pembayaran: E-Wallet';
+            if (method === 'bank') {
+                imagePath = './images/bank.jpg';
+                caption = 'Anda memilih metode pembayaran: BANK';
+            } else if (method === 'ewallet') {
+                imagePath = './images/ewallet.jpg';
+                caption = 'Anda memilih metode pembayaran: E-Wallet';
+            }
+
+            if (fs.existsSync(imagePath)) {
+                await sock.sendMessage(jid, {
+                    image: { url: imagePath },
+                    caption: caption
+                });
+            } else {
+                await sock.sendMessage(jid, { text: 'Gambar tidak ditemukan.' });
+            }
+        } catch (error) {
+            console.error('Error sending payment image:', error);
         }
-
-        await sock.sendMessage(jid, {
-            image: { url: imagePath },
-            caption: caption
-        });
     };
 
     // Fungsi untuk menampilkan pertanyaan produk fisik atau digital
     const askProductType = async (jid) => {
-        await sock.sendMessage(jid, {
-            text: 'Apa yang kamu beli?',
-            buttons: [
-                { buttonId: 'physical', buttonText: { displayText: 'Ini produk fisik' }, type: 1 },
-                { buttonId: 'digital', buttonText: { displayText: 'Ini produk digital' }, type: 1 }
-            ],
-            headerType: 1
-        });
+        try {
+            await sock.sendMessage(jid, {
+                text: 'Apa yang kamu beli?',
+                buttons: [
+                    { buttonId: 'physical', buttonText: { displayText: 'Ini produk fisik' }, type: 1 },
+                    { buttonId: 'digital', buttonText: { displayText: 'Ini produk digital' }, type: 1 }
+                ],
+                headerType: 1
+            });
+        } catch (error) {
+            console.error('Error asking product type:', error);
+        }
     };
 
     // Fungsi untuk meminta detail alamat produk fisik
     const askPhysicalAddress = async (jid) => {
-        await sock.sendMessage(jid, { text: 'Silakan isi detail alamat lengkap:\nNama lengkap, Alamat rumah, RT/RW, Desa/Kelurahan, Kecamatan, Kota/Kabupaten, Kode Pos' });
-        userOrder[jid].awaitingAddress = 'physical';
+        try {
+            await sock.sendMessage(jid, { text: 'Silakan isi detail alamat lengkap:\nNama lengkap, Alamat rumah, RT/RW, Desa/Kelurahan, Kecamatan, Kota/Kabupaten, Kode Pos' });
+            userOrder[jid].awaitingAddress = 'physical';
+        } catch (error) {
+            console.error('Error asking physical address:', error);
+        }
     };
 
     // Fungsi untuk meminta detail kontak produk digital
     const askDigitalContact = async (jid) => {
-        await sock.sendMessage(jid, { text: 'Silakan beri detail kontak digital (misalnya email atau nomor telepon).' });
-        userOrder[jid].awaitingAddress = 'digital';
+        try {
+            await sock.sendMessage(jid, { text: 'Silakan beri detail kontak digital (misalnya email atau nomor telepon).' });
+            userOrder[jid].awaitingAddress = 'digital';
+        } catch (error) {
+            console.error('Error asking digital contact:', error);
+        }
     };
 
     // Fungsi untuk meminta konfirmasi pembayaran
     const askPaymentConfirmation = async (jid) => {
-        await sock.sendMessage(jid, {
-            text: 'Apakah pesanan Anda sudah dibayar?',
-            buttons: [
-                { buttonId: 'paid', buttonText: { displayText: 'Sudah Dibayar' }, type: 1 },
-                { buttonId: 'not_paid', buttonText: { displayText: 'Belum Dibayar' }, type: 1 }
-            ],
-            headerType: 1
-        });
+        try {
+            await sock.sendMessage(jid, {
+                text: 'Apakah pesanan Anda sudah dibayar?',
+                buttons: [
+                    { buttonId: 'paid', buttonText: { displayText: 'Sudah Dibayar' }, type: 1 },
+                    { buttonId: 'not_paid', buttonText: { displayText: 'Belum Dibayar' }, type: 1 }
+                ],
+                headerType: 1
+            });
+        } catch (error) {
+            console.error('Error asking payment confirmation:', error);
+        }
     };
 
     // Fungsi untuk meminta bukti transfer
     const askForTransferProof = async (jid) => {
-        await sock.sendMessage(jid, { text: 'Jika sudah, silakan kirim bukti transfer.' });
-        userOrder[jid].awaitingTransferProof = true;
+        try {
+            await sock.sendMessage(jid, { text: 'Jika sudah, silakan kirim bukti transfer.' });
+            userOrder[jid].awaitingTransferProof = true;
+        } catch (error) {
+            console.error('Error asking for transfer proof:', error);
+        }
     };
 
     // Menangani pesan masuk
     sock.ev.on('messages.upsert', async (msg) => {
         const message = msg.messages[0];
         const jid = message.key.remoteJid;
-        const text = message.message?.conversation?.toLowerCase();
+        const text = message.message?.conversation?.toLowerCase() ||
+            message.message?.extendedTextMessage?.text?.toLowerCase();
+        const buttonResponse = message.message?.buttonsResponseMessage?.selectedButtonId;
 
         if (!message.key.fromMe && message.message) {
-            // Periksa apakah pengguna sudah pernah berinteraksi sebelumnya
-            if (!userStatus[jid]) {
-                // Jika pengguna baru, kirim ucapan selamat datang dan tandai mereka
-                await sendWelcomeMessage(jid);
-                userStatus[jid] = { hasInteracted: true };
-            }
+            try {
+                // Periksa apakah pengguna sudah pernah berinteraksi sebelumnya
+                if (!userStatus[jid]) {
+                    // Jika pengguna baru, kirim ucapan selamat datang dan tandai mereka
+                    await sendWelcomeMessage(jid);
+                    userStatus[jid] = { hasInteracted: true };
+                }
 
-            // Menangani pilihan menu awal
-            if (text === 'menu') {
-                await showProducts(jid);
-            } else if (text.startsWith('pilih produk')) {
-                const productIndex = parseInt(text.split(' ')[2]) - 1;
-                await showSubProducts(jid, productIndex);
-            } else if (text.startsWith('pilih sub-produk')) {
-                const [_, __, productIndex, subProductIndex] = text.split(' ');
-                await showProductDetails(jid, parseInt(productIndex) - 1, parseInt(subProductIndex) - 1);
-            } else if (text === 'beli') {
-                await showPaymentMethods(jid);
-            }
-
-            // Menangani pilihan metode pembayaran
-            else if (text === 'bank' || text === 'ewallet') {
-                userOrder[jid].paymentMethod = text.toUpperCase();
-                await sendPaymentImage(jid, text);  // Kirim gambar sesuai metode pembayaran
-                await askProductType(jid);
-            }
-
-            // Menangani pilihan produk fisik atau digital
-            else if (text === 'ini produk fisik') {
-                await askPhysicalAddress(jid);
-            } else if (text === 'ini produk digital') {
-                await askDigitalContact(jid);
-            }
-
-            // Menangani pengisian detail alamat atau kontak
-            else if (userOrder[jid]?.awaitingAddress === 'physical') {
-                userOrder[jid].address = text;
-                await askPaymentConfirmation(jid);
-            } else if (userOrder[jid]?.awaitingAddress === 'digital') {
-                userOrder[jid].digitalContact = text;
-                await askPaymentConfirmation(jid);
-            }
-
-            // Menangani konfirmasi pembayaran
-            else if (text === 'sudah dibayar') {
-                await askForTransferProof(jid);
-            } else if (text === 'belum dibayar') {
-                await sock.sendMessage(jid, { text: 'Silakan lakukan pembayaran terlebih dahulu.' });
-            }
-
-            // Menangani pengiriman bukti transfer (gambar)
-            else if (message.message.imageMessage && userOrder[jid]?.awaitingTransferProof) {
-                // Simpan bukti transfer, bisa kamu gunakan sesuai kebutuhan
-                await sock.sendMessage(jid, { text: 'Mohon tunggu, kami sedang memeriksa bukti transaksi Anda.' });
-                userOrder[jid].awaitingTransferProof = false;
-                // Proses lebih lanjut untuk verifikasi bukti transfer
+                if (buttonResponse) {
+                    if (buttonResponse === 'buy') {
+                        await showPaymentMethods(jid);
+                    } else if (buttonResponse === 'bank' || buttonResponse === 'ewallet') {
+                        userOrder[jid].paymentMethod = buttonResponse.toUpperCase();
+                        await sendPaymentImage(jid, buttonResponse);
+                        await askProductType(jid);
+                    } else if (buttonResponse === 'physical') {
+                        await askPhysicalAddress(jid);
+                    } else if (buttonResponse === 'digital') {
+                        await askDigitalContact(jid);
+                    } else if (buttonResponse === 'paid') {
+                        await askForTransferProof(jid);
+                    }
+                } else if (text) {
+                    if (text === 'produk') {
+                        await showProducts(jid);
+                    } else if (userOrder[jid]?.awaitingAddress) {
+                        if (userOrder[jid].awaitingAddress === 'physical') {
+                            userOrder[jid].address = text; // Simpan alamat fisik
+                            await askPaymentConfirmation(jid);
+                        } else if (userOrder[jid].awaitingAddress === 'digital') {
+                            userOrder[jid].contact = text; // Simpan kontak digital
+                            await askPaymentConfirmation(jid);
+                        }
+                    } else if (text.match(/^\d+$/)) {
+                        const index = parseInt(text) - 1;
+                        if (index >= 0 && index < products.length) {
+                            await showSubProducts(jid, index);
+                        } else if (userOrder[jid]?.product) {
+                            const subProductIndex = index;
+                            await showProductDetails(jid, 0, subProductIndex); // Periksa produk pertama untuk contoh
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error handling message:', error);
+                await sock.sendMessage(jid, { text: 'Terjadi kesalahan, coba lagi nanti.' });
             }
         }
     });
 
-    return sock;
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error = Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('connection closed due to', lastDisconnect.error, ', reconnecting', shouldReconnect);
+            if (shouldReconnect) {
+                startBot();
+            }
+        } else if (connection === 'open') {
+            console.log('opened connection');
+        }
+    });
+
+    sock.ev.on('messages.update', (m) => console.log(m));
 };
 
 startBot();
