@@ -4,8 +4,7 @@
   "description": "Toko Online WhatsApp",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "Sidhanie",
@@ -16,7 +15,7 @@
     "ws": "^8.7.0"
   },
   "engines": {
-    "node": ">=16.x"
+    "node": ">=16.0.0"
   },
   "repository": {
     "type": "git",
